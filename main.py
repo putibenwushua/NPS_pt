@@ -150,99 +150,109 @@ class PacketSniffer:
         print("stop sniffing")
 
     def sniff_packets(self):
-        scapy.sniff(prn=self.process_packet, stop_filter=lambda x: not self.sniffing)
+        try:
+            scapy.sniff(prn=self.process_packet, stop_filter=lambda x: not self.sniffing)
+        except Exception as e:
+            print(f"Error during sniffing: {e}")
 
     def process_packet(self, packet):
-        # Set base time for the first packet
-        if self.start_time is None:
-            self.start_time = packet.time
+        try:
+            # Set base time for the first packet
+            if self.start_time is None:
+                self.start_time = packet.time
 
-        # Calculate relative timestamp
-        self.packet_count += 1
-        timestamp = round(packet.time - self.start_time, 6)
+            # Calculate relative timestamp
+            self.packet_count += 1
+            timestamp = round(packet.time - self.start_time, 6)
 
-        # Set default values for Source, Destination, and Protocol
-        source, destination, protocol_name , ip_n = "N/A", "N/A", "Unknown", "Unknown"
-        info = packet.summary()
+            # Set default values for Source, Destination, and Protocol
+            source, destination, protocol_name , ip_n = "N/A", "N/A", "Unknown", "Unknown"
+            info = packet.summary()
 
-        # Identify IP layer (IPv4 or IPv6)
-        if IP in packet:
-            source = packet[IP].src
-            destination = packet[IP].dst
-            protocol_name = "IPv4"
-            ip_n = "IPv4"
-        elif IPv6 in packet:
-            source = packet[IPv6].src
-            destination = packet[IPv6].dst
-            protocol_name = "IPv6"
-            ip_n = "IPv6"
+            # Identify IP layer (IPv4 or IPv6)
+            if IP in packet:
+                source = packet[IP].src
+                destination = packet[IP].dst
+                protocol_name = "IPv4"
+                ip_n = "IPv4"
+            elif IPv6 in packet:
+                source = packet[IPv6].src
+                destination = packet[IPv6].dst
+                protocol_name = "IPv6"
+                ip_n = "IPv6"
 
-            # Detect ICMPv6 messages within IPv6 packets
-            if packet.haslayer(ICMPv6EchoRequest):
+                # Detect ICMPv6 messages within IPv6 packets
+                if packet.haslayer(ICMPv6EchoRequest):
+                    protocol_name = "ICMP"
+                    info = f"ICMPv6 Echo Request ID={packet[ICMPv6EchoRequest].id} Seq={packet[ICMPv6EchoRequest].seq}"
+                elif packet.haslayer(ICMPv6EchoReply):
+                    protocol_name = "ICMP"
+                    info = f"ICMPv6 Echo Reply ID={packet[ICMPv6EchoReply].id} Seq={packet[ICMPv6EchoReply].seq}"
+                elif packet.haslayer(ICMPv6ND_NS):  # Neighbor Solicitation
+                    protocol_name = "ICMP"
+                    info = f"Neighbor Solicitation Target={packet[ICMPv6ND_NS].tgt}"
+                elif packet.haslayer(ICMPv6ND_NA):  # Neighbor Advertisement
+                    protocol_name = "ICMP"
+                    info = f"Neighbor Advertisement Target={packet[ICMPv6ND_NA].tgt}"
+                elif packet.haslayer(ICMPv6ND_RA):  # Router Advertisement
+                    protocol_name = "ICMP"
+                    info = "Router Advertisement"
+
+            elif ARP in packet:
+                source = packet[ARP].psrc
+                destination = packet[ARP].pdst
+                protocol_name = "ARP"
+
+            elif not (IP in packet or IPv6 in packet or ARP in packet):
+                print("Packet does not contain expected layers.")
+
+            # Detect and parse specific protocols (e.g., TCP, UDP)
+            if TCP in packet:
+                protocol_name = "TCP"
+                info = f"{packet[TCP].sport} -> {packet[TCP].dport} [Flags={packet.sprintf('%TCP.flags%')}] Seq={packet[TCP].seq} Ack={packet[TCP].ack}"
+                # Check if the packet is likely to be TLS by port number (443)
+                if packet[TCP].dport == 443 or packet[TCP].sport == 443:
+                    protocol_name = "TLS"
+                    info = "TLS Packet on port 443"
+
+                if packet[TCP].dport == 80 or packet[TCP].sport == 80:
+                    if packet.haslayer(HTTPRequest):
+                        protocol_name = "HTTP"
+                        info = f"HTTP Request: {packet[HTTPRequest].Method.decode()} {packet[HTTPRequest].Host.decode()}{packet[HTTPRequest].Path.decode()}"
+                    elif packet.haslayer(HTTPResponse):
+                        protocol_name = "HTTP"
+                        info = f"HTTP Response: Status Code {packet[HTTPResponse].Status_Code.decode()}"
+
+            elif UDP in packet:
+                protocol_name = "UDP"
+                info = f"{packet[UDP].sport} -> {packet[UDP].dport}"
+                # Check if the packet is likely to be DNS
+                if packet.haslayer(DNS):
+                    protocol_name = "DNS"
+                    if packet[DNS].qr == 0:  # Query
+                        info = f"DNS Query: {packet[DNSQR].qname.decode()}"
+                    else:  # Response
+                        info = "DNS Response"
+                        if packet[DNS].ancount > 0:  # If there are answers
+                            answers = [packet[DNSRR][i].rdata for i in range(packet[DNS].ancount)]
+                            info += f" - Answers: {answers}"
+
+            elif ICMP in packet and protocol_name != "ICMP":
+                # Only handle standard ICMP if not IPv6 (i.e., avoid double-counting)
                 protocol_name = "ICMP"
-                info = f"ICMPv6 Echo Request ID={packet[ICMPv6EchoRequest].id} Seq={packet[ICMPv6EchoRequest].seq}"
-            elif packet.haslayer(ICMPv6EchoReply):
-                protocol_name = "ICMP"
-                info = f"ICMPv6 Echo Reply ID={packet[ICMPv6EchoReply].id} Seq={packet[ICMPv6EchoReply].seq}"
-            elif packet.haslayer(ICMPv6ND_NS):  # Neighbor Solicitation
-                protocol_name = "ICMP"
-                info = f"Neighbor Solicitation Target={packet[ICMPv6ND_NS].tgt}"
-            elif packet.haslayer(ICMPv6ND_NA):  # Neighbor Advertisement
-                protocol_name = "ICMP"
-                info = f"Neighbor Advertisement Target={packet[ICMPv6ND_NA].tgt}"
-            elif packet.haslayer(ICMPv6ND_RA):  # Router Advertisement
-                protocol_name = "ICMP"
-                info = "Router Advertisement"
+                info = f"Type={packet[ICMP].type} Code={packet[ICMP].code} ID={packet[ICMP].id} Seq={packet[ICMP].seq}"
 
-        elif ARP in packet:
-            source = packet[ARP].psrc
-            destination = packet[ARP].pdst
-            protocol_name = "ARP"
+            # Save the packet for detailed view and update the Treeview
+            self.captured_packets.append(packet)
+            length = len(packet)
+            self.displayed_packets.append(
+                (self.packet_count, timestamp, source, destination, ip_n, protocol_name, length, info, packet)
+            )
+            self.packet_tree.insert("", "end",
+                                    values=(self.packet_count, timestamp, source, destination, ip_n, protocol_name, length, info))
+        except Exception as e:
+            print(f"Error processing packet: {e}, Packet: {packet.summary()}")
 
-        # Detect and parse specific protocols (e.g., TCP, UDP)
-        if TCP in packet:
-            protocol_name = "TCP"
-            info = f"{packet[TCP].sport} -> {packet[TCP].dport} [Flags={packet.sprintf('%TCP.flags%')}] Seq={packet[TCP].seq} Ack={packet[TCP].ack}"
-            # Check if the packet is likely to be TLS by port number (443)
-            if packet[TCP].dport == 443 or packet[TCP].sport == 443:
-                protocol_name = "TLS"
-                info = "TLS Packet on port 443"
-
-            if packet[TCP].dport == 80 or packet[TCP].sport == 80:
-                if packet.haslayer(HTTPRequest):
-                    protocol_name = "HTTP"
-                    info = f"HTTP Request: {packet[HTTPRequest].Method.decode()} {packet[HTTPRequest].Host.decode()}{packet[HTTPRequest].Path.decode()}"
-                elif packet.haslayer(HTTPResponse):
-                    protocol_name = "HTTP"
-                    info = f"HTTP Response: Status Code {packet[HTTPResponse].Status_Code.decode()}"
-
-        elif UDP in packet:
-            protocol_name = "UDP"
-            info = f"{packet[UDP].sport} -> {packet[UDP].dport}"
-            # Check if the packet is likely to be DNS
-            if packet.haslayer(DNS):
-                protocol_name = "DNS"
-                if packet[DNS].qr == 0:  # Query
-                    info = f"DNS Query: {packet[DNSQR].qname.decode()}"
-                else:  # Response
-                    info = "DNS Response"
-                    if packet[DNS].ancount > 0:  # If there are answers
-                        answers = [packet[DNSRR][i].rdata for i in range(packet[DNS].ancount)]
-                        info += f" - Answers: {answers}"
-
-        elif ICMP in packet and protocol_name != "ICMP":
-            # Only handle standard ICMP if not IPv6 (i.e., avoid double-counting)
-            protocol_name = "ICMP"
-            info = f"Type={packet[ICMP].type} Code={packet[ICMP].code} ID={packet[ICMP].id} Seq={packet[ICMP].seq}"
-
-        # Save the packet for detailed view and update the Treeview
-        self.captured_packets.append(packet)
-        length = len(packet)
-        self.displayed_packets.append(
-            (self.packet_count, timestamp, source, destination, ip_n, protocol_name, length, info, packet)
-        )
-        self.packet_tree.insert("", "end",
-                                values=(self.packet_count, timestamp, source, destination, ip_n, protocol_name, length, info))
 
     def show_packet_details(self, event):
         # 获取选中的数据包
@@ -376,38 +386,40 @@ class PacketSniffer:
             output.append(f"len      = {udp.len}")
             output.append(f"chksum   = {udp.chksum}")
 
-            # DNS 层
-            if packet.haslayer(DNS):
-                dns = packet.getlayer(DNS)
-                output.append(f"### [ DNS ] ###")
-                output.append(f"id       = {dns.id}")
-                output.append(f"qr       = {'Query' if dns.qr == 0 else 'Response'}")
-                output.append(f"opcode   = {dns.opcode}")
-                output.append(f"rcode    = {dns.rcode}")
-                output.append(f"qdcount  = {dns.qdcount}")
-                output.append(f"ancount  = {dns.ancount}")
-                output.append(f"nscount  = {dns.nscount}")
-                output.append(f"arcount  = {dns.arcount}")
+        # DNS 层
+        if packet.haslayer(DNS):
+            dns = packet.getlayer(DNS)
+            output.append(f"### [ DNS ] ###")
+            output.append(f"id       = {dns.id}")
+            output.append(f"qr       = {'Query' if dns.qr == 0 else 'Response'}")
+            output.append(f"opcode   = {dns.opcode}")
+            output.append(f"rcode    = {dns.rcode}")
+            output.append(f"qdcount  = {dns.qdcount}")
+            output.append(f"ancount  = {dns.ancount}")
+            output.append(f"nscount  = {dns.nscount}")
+            output.append(f"arcount  = {dns.arcount}")
 
-                # Query Section
-                if dns.qr == 0 and dns.qdcount > 0:
+            # Query Section
+            if dns.qr == 0 and dns.qdcount > 0:
+                if hasattr(dns, 'qd') and isinstance(dns.qd, DNSQR):
                     output.append("### [ DNS Query Section ] ###")
-                    queries = packet.getlayer(DNS).qd
-                    if queries:
-                        for i in range(dns.qdcount):
-                            query = queries if dns.qdcount == 1 else queries[i]  # Handle single and multiple queries
-                            output.append(f"QName    = {query.qname.decode()}")
+                    for i in range(dns.qdcount):
+                        query = dns.qd if dns.qdcount == 1 else dns.qd[i]
+                        if query:
+                            output.append(
+                                f"QName    = {query.qname.decode() if hasattr(query.qname, 'decode') else query.qname}")
                             output.append(f"QType    = {query.qtype}")
                             output.append(f"QClass   = {query.qclass}")
 
-                # Answer Section
-                if dns.qr == 1 and dns.ancount > 0:
+            # Answer Section
+            if dns.qr == 1 and dns.ancount > 0:
+                if hasattr(dns, 'an') and isinstance(dns.an, DNSRR):
                     output.append("### [ DNS Answer Section ] ###")
-                    answers = packet.getlayer(DNS).an
-                    if answers:
-                        for i in range(dns.ancount):
-                            answer = answers if dns.ancount == 1 else answers[i]  # Handle single and multiple answers
-                            output.append(f"Name     = {answer.rrname.decode()}")
+                    for i in range(dns.ancount):
+                        answer = dns.an if dns.ancount == 1 else dns.an[i]
+                        if answer:
+                            output.append(
+                                f"Name     = {answer.rrname.decode() if hasattr(answer.rrname, 'decode') else answer.rrname}")
                             output.append(f"Type     = {answer.type}")
                             output.append(f"Class    = {answer.rclass}")
                             output.append(f"TTL      = {answer.ttl}")
