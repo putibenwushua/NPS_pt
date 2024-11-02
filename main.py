@@ -339,18 +339,18 @@ class PacketSniffer:
             output.append(f"src      = {ip.src}")
             output.append(f"dst      = {ip.dst}")
 
-        # IPv6 层
-        if packet.haslayer(IPv6):
-            ipv6 = packet.getlayer(IPv6)
-            output.append(f"### [ IPv6 ] ###")
-            output.append(f"version  = {ipv6.version}")
-            output.append(f"tc       = {ipv6.tc}")
-            output.append(f"fl       = {ipv6.fl}")
-            output.append(f"plen     = {ipv6.plen}")
-            output.append(f"nh       = {ipv6.nh}")
-            output.append(f"hlim     = {ipv6.hlim}")
-            output.append(f"src      = {ipv6.src}")
-            output.append(f"dst      = {ipv6.dst}")
+        # # IPv6 层
+        # if packet.haslayer(IPv6):
+        #     ipv6 = packet.getlayer(IPv6)
+        #     output.append(f"### [ IPv6 ] ###")
+        #     output.append(f"version  = {ipv6.version}")
+        #     output.append(f"tc       = {ipv6.tc}")
+        #     output.append(f"fl       = {ipv6.fl}")
+        #     output.append(f"plen     = {ipv6.plen}")
+        #     output.append(f"nh       = {ipv6.nh}")
+        #     output.append(f"hlim     = {ipv6.hlim}")
+        #     output.append(f"src      = {ipv6.src}")
+        #     output.append(f"dst      = {ipv6.dst}")
 
         # TCP 层
         if packet.haslayer(TCP):
@@ -376,36 +376,42 @@ class PacketSniffer:
             output.append(f"len      = {udp.len}")
             output.append(f"chksum   = {udp.chksum}")
 
-        # DNS 层
-        if packet.haslayer(DNS):
-            dns = packet.getlayer(DNS)
-            output.append(f"### [ DNS ] ###")
-            output.append(f"id       = {dns.id}")
-            output.append(f"qr       = {'Query' if dns.qr == 0 else 'Response'}")
-            output.append(f"opcode   = {dns.opcode}")
-            output.append(f"rcode    = {dns.rcode}")
-            output.append(f"qdcount  = {dns.qdcount}")
-            output.append(f"ancount  = {dns.ancount}")
-            output.append(f"nscount  = {dns.nscount}")
-            output.append(f"arcount  = {dns.arcount}")
+            # DNS 层
+            if packet.haslayer(DNS):
+                dns = packet.getlayer(DNS)
+                output.append(f"### [ DNS ] ###")
+                output.append(f"id       = {dns.id}")
+                output.append(f"qr       = {'Query' if dns.qr == 0 else 'Response'}")
+                output.append(f"opcode   = {dns.opcode}")
+                output.append(f"rcode    = {dns.rcode}")
+                output.append(f"qdcount  = {dns.qdcount}")
+                output.append(f"ancount  = {dns.ancount}")
+                output.append(f"nscount  = {dns.nscount}")
+                output.append(f"arcount  = {dns.arcount}")
 
-            # Query Section
-            if dns.qr == 0 and dns.qdcount > 0:
-                output.append("### [ DNS Query Section ] ###")
-                for i in range(dns.qdcount):
-                    output.append(f"QName    = {dns[DNSQR][i].qname.decode()}")
-                    output.append(f"QType    = {dns[DNSQR][i].qtype}")
-                    output.append(f"QClass   = {dns[DNSQR][i].qclass}")
+                # Query Section
+                if dns.qr == 0 and dns.qdcount > 0:
+                    output.append("### [ DNS Query Section ] ###")
+                    queries = packet.getlayer(DNS).qd
+                    if queries:
+                        for i in range(dns.qdcount):
+                            query = queries if dns.qdcount == 1 else queries[i]  # Handle single and multiple queries
+                            output.append(f"QName    = {query.qname.decode()}")
+                            output.append(f"QType    = {query.qtype}")
+                            output.append(f"QClass   = {query.qclass}")
 
-            # Answer Section
-            if dns.qr == 1 and dns.ancount > 0:
-                output.append("### [ DNS Answer Section ] ###")
-                for i in range(dns.ancount):
-                    output.append(f"Name     = {dns[DNSRR][i].rrname.decode()}")
-                    output.append(f"Type     = {dns[DNSRR][i].type}")
-                    output.append(f"Class    = {dns[DNSRR][i].rclass}")
-                    output.append(f"TTL      = {dns[DNSRR][i].ttl}")
-                    output.append(f"RData    = {dns[DNSRR][i].rdata}")
+                # Answer Section
+                if dns.qr == 1 and dns.ancount > 0:
+                    output.append("### [ DNS Answer Section ] ###")
+                    answers = packet.getlayer(DNS).an
+                    if answers:
+                        for i in range(dns.ancount):
+                            answer = answers if dns.ancount == 1 else answers[i]  # Handle single and multiple answers
+                            output.append(f"Name     = {answer.rrname.decode()}")
+                            output.append(f"Type     = {answer.type}")
+                            output.append(f"Class    = {answer.rclass}")
+                            output.append(f"TTL      = {answer.ttl}")
+                            output.append(f"RData    = {answer.rdata}")
 
         # ICMPv6 层
         if packet.haslayer(ICMPv6EchoRequest):
