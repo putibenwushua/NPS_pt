@@ -260,9 +260,10 @@ class PacketSniffer:
         if not selected_item:
             return
         item_index = int(self.packet_tree.item(selected_item)['values'][0]) - 1  # 从 No 列获取数据包索引
-
+        print(item_index)
         # 获取对应的数据包
-        packet = self.captured_packets[item_index]
+        packet = self.displayed_packets[item_index][8]
+
         raw_bytes = bytes(packet)  # 原始字节数据
 
         # 显示偏移量和原始数据的十六进制和 ASCII 格式
@@ -499,7 +500,10 @@ class PacketSniffer:
             return
 
         item_index = int(self.packet_tree.item(selected_item)['values'][0]) - 1
-        selected_packet = self.captured_packets[item_index]
+        print(item_index)
+        packet = self.displayed_packets[item_index][8]
+        # selected_packet = self.captured_packets[item_index]
+        selected_packet = packet
 
         # Determine protocol and session_info for IPv4 or IPv6
         if TCP in selected_packet:
